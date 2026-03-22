@@ -24,8 +24,13 @@ def clean_markdown(text):
     text = text.replace('##', '')
     return text
 
+def safe_get(obj, key, default=None):
+    """Safely get a key from obj only if it is a dict."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return default
+
 def get_cjk_font(size):
-    """Try to load a font that supports CJK (Japanese/Chinese/Korean) characters."""
     cjk_font_paths = [
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
@@ -77,7 +82,6 @@ def create_translations_image(translations):
     for lang, text in translations.items():
         if text:
             lines_data.append(('title', f"{lang}:"))
-            # wrap text into chunks
             words = str(text).split()
             chunk = ""
             for word in words:
@@ -95,7 +99,6 @@ def create_translations_image(translations):
     draw = ImageDraw.Draw(img)
     font_title = get_cjk_font(26)
     font_body = get_cjk_font(22)
-    # Header
     try:
         header_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 30)
     except:
@@ -126,7 +129,7 @@ def create_brand_book_pdf(company, industry, tone, desc, brand, campaign, strate
                                   spaceAfter=30, alignment=TA_CENTER)
     heading_style = ParagraphStyle('H', parent=styles['Heading2'], fontSize=16, spaceAfter=12)
     body_style = ParagraphStyle('B', parent=styles['BodyText'], fontSize=11,
-                                 textColor='#555555', spaceAfter=10)
+                                 spaceAfter=10)
     story = []
     story.append(Paragraph(clean_markdown(f"{company} Brand Book"), title_style))
     story.append(Spacer(1, 0.3*inch))
@@ -135,32 +138,51 @@ def create_brand_book_pdf(company, industry, tone, desc, brand, campaign, strate
     story.append(Paragraph(clean_markdown(f"Brand Tone: {tone}"), body_style))
     story.append(Paragraph(clean_markdown(f"Description: {desc}"), body_style))
     story.append(Spacer(1, 0.2*inch))
-    if brand:
+    # Brand Identity - brand is a dict
+    if brand and isinstance(brand, dict):
         story.append(Paragraph("Brand Identity", heading_style))
-        slogan = final_slogan or (brand.get('slogans', [''])[0] if brand.get('slogans') else '')
-        font_name = final_font or (brand.get('fonts', [''])[0] if brand.get('fonts') else '')
+        slogans = brand.get('slogans', [])
+        fonts = brand.get('fonts', [])
+        slogan = final_slogan or (slogans[0] if slogans else '')
+        font_name = final_font or (fonts[0] if fonts else '')
         if slogan:
             story.append(Paragraph(clean_markdown(f"Tagline: {slogan}"), body_style))
         if font_name:
             story.append(Paragraph(clean_markdown(f"Primary Font: {font_name}"), body_style))
-        if brand.get('color_palette'):
-            story.append(Paragraph(clean_markdown(f"Color Palette: {', '.join(brand['color_palette'][:4])}"), body_style))
+        palette = brand.get('color_palette', [])
+        if palette:
+            story.append(Paragraph(clean_markdown(f"Color Palette: {', '.join(palette[:4])}"), body_style))
         story.append(Spacer(1, 0.2*inch))
-    if campaign:
+    # Campaign - campaign is a dict with key 'captions'
+    if campaign and isinstance(campaign, dict):
         story.append(Paragraph("Campaign Strategy", heading_style))
-        ideas = campaign.get('campaign_ideas', [])
+        # support both 'captions' and 'campaign_ideas' keys
+        ideas = campaign.get('captions', campaign.get('campaign_ideas', []))
         if final_campaign_caption and final_campaign_caption in ideas:
-            story.append(Paragraph(clean_markdown(f"Featured: {final_campaign_caption}"), body_style))
-        else:
+            story.append(Paragraph(clean_markdown(f"Featured Campaign: {final_campaign_caption}"), body_style))
+        elif ideas:
             for idx, idea in enumerate(ideas[:3], 1):
                 story.append(Paragraph(clean_markdown(f"{idx}. {idea}"), body_style))
+        metrics = campaign.get('metrics', '')
+        if metrics:
+            story.append(Paragraph(clean_markdown(f"Metrics: {metrics}"), body_style))
         story.append(Spacer(1, 0.2*inch))
+    # Strategy - strategy is a plain string
     if strategy:
         story.append(Paragraph("Brand Strategy", heading_style))
-        if strategy.get('target_audience'):
-            story.append(Paragraph(clean_markdown(f"Target Audience: {strategy['target_audience']}"), body_style))
-        if strategy.get('positioning'):
-            story.append(Paragraph(clean_markdown(f"Positioning: {strategy['positioning']}"), body_style))
+        if isinstance(strategy, dict):
+            if strategy.get('target_audience'):
+                story.append(Paragraph(clean_markdown(f"Target Audience: {strategy['target_audience']}"), body_style))
+            if strategy.get('positioning'):
+                story.append(Paragraph(clean_markdown(f"Positioning: {strategy['positioning']}"), body_style))
+        else:
+            # strategy is a plain text string
+            strategy_text = clean_markdown(str(strategy))
+            # Split into lines and add each
+            for line in strategy_text.split('\n')[:30]:
+                line = line.strip()
+                if line:
+                    story.append(Paragraph(line, body_style))
         story.append(Spacer(1, 0.2*inch))
     story.append(Paragraph("Brand Translations", heading_style))
     story.append(Paragraph("See translations.png in this package for multilingual brand content.", body_style))
@@ -175,7 +197,7 @@ def create_brand_book_pdf(company, industry, tone, desc, brand, campaign, strate
 def create_brand_book_zip(company, industry, tone, desc):
     brand = st.session_state.get('brand', {})
     campaign = st.session_state.get('campaign', {})
-    strategy = st.session_state.get('strategy', {})
+    strategy = st.session_state.get('strategy', '')
     translations = st.session_state.get('translations', {})
     final_slogan = st.session_state.get('final_slogan', '')
     final_font = st.session_state.get('final_font', '')
@@ -183,7 +205,7 @@ def create_brand_book_zip(company, industry, tone, desc):
     extra_content = st.session_state.get('book_extra_content', '')
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-        if brand.get('color_palette'):
+        if isinstance(brand, dict) and brand.get('color_palette'):
             palette_img = create_color_palette_image(brand['color_palette'])
             zf.writestr('color_palette.png', palette_img.read())
         if os.path.exists('logo_animation.gif'):
@@ -249,6 +271,6 @@ def render(company, industry, tone, desc):
                     mime="application/zip"
                 )
                 st.success("Brand book package ready! Click above to download.")
-                st.info("Package includes: color_palette.png | logo_animation.gif (if available) | brand_book.pdf | translations.png")
+                st.info("Package contents: color_palette.png | logo_animation.gif (if available) | brand_book.pdf | translations.png")
             except Exception as e:
                 st.error(f"Error: {str(e)}")
