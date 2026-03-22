@@ -1,40 +1,30 @@
 import streamlit as st
 import pandas as pd
 import os
-import random
 from utils import generate_ai, extract_json, glass_card, font_card
 from fonts_by_tone import get_fonts_str_for_tone
 
-def load_slogan_examples(tone, n=6):
+CSV_FILENAME = "sloganlist (1).csv"
+
+def load_slogan_examples(n=6):
     """
-    Loads example slogans from slogans.csv.
+    Loads example slogans from the sloganlist CSV.
     Returns a formatted string of example slogans for the AI prompt.
     """
     try:
-        csv_path = os.path.join(os.path.dirname(__file__), "slogans.csv")
+        csv_path = os.path.join(os.path.dirname(__file__), CSV_FILENAME)
         df = pd.read_csv(csv_path)
-        # Try to filter by tone if a tone column exists
-        tone_col = None
-        for col in df.columns:
-            if col.lower() in ["tone", "style", "brand_tone"]:
-                tone_col = col
-                break
-        if tone_col:
-            filtered = df[df[tone_col].str.lower() == tone.lower()]
-            if len(filtered) >= n:
-                sample = filtered.sample(n)
+        # The CSV has columns: Company, Slogan
+        slogan_col = "Slogan"
+        if slogan_col not in df.columns:
+            # fallback: try to find slogan-like column
+            for col in df.columns:
+                if col.lower() in ["slogan", "tagline", "slogans", "taglines"]:
+                    slogan_col = col
+                    break
             else:
-                sample = df.sample(min(n, len(df)))
-        else:
-            sample = df.sample(min(n, len(df)))
-        # Try to find the slogan column
-        slogan_col = None
-        for col in df.columns:
-            if col.lower() in ["slogan", "tagline", "slogans", "taglines", "text"]:
-                slogan_col = col
-                break
-        if slogan_col is None:
-            slogan_col = df.columns[0]
+                slogan_col = df.columns[-1]  # last column as fallback
+        sample = df.sample(min(n, len(df)))
         examples = sample[slogan_col].dropna().tolist()
         return ", ".join([f'"{s}"' for s in examples])
     except Exception:
@@ -45,17 +35,17 @@ def render(company, industry, tone, desc):
         # Get approved fonts for this tone
         fonts_list = get_fonts_str_for_tone(tone)
         # Get slogan examples from CSV
-        slogan_examples = load_slogan_examples(tone)
+        slogan_examples = load_slogan_examples()
         slogan_hint = ""
         if slogan_examples:
-            slogan_hint = f"\nFor slogan inspiration, study these real brand slogans (DO NOT copy, create unique ones): {slogan_examples}."
+            slogan_hint = f"\nFor slogan inspiration, study these real brand slogans and their style (DO NOT copy them, create unique original ones for this brand): {slogan_examples}."
         prompt = f"""
         Return ONLY JSON.
         {{"slogans":["","","","",""], "fonts":["","",""], "palette":["#HEX","#HEX","#HEX","#HEX"]}}
         Company:{company}\nIndustry:{industry}\nTone:{tone}\nDescription:{desc}
         {slogan_hint}
         For fonts, you MUST choose exactly 3 fonts from this approved list only: {fonts_list}.
-        Create 5 unique, memorable slogans that match the brand tone and industry.
+        Create 5 unique, memorable slogans tailored specifically to this brand's tone, industry, and description.
         """
         data = extract_json(generate_ai(prompt))
         if data:
@@ -99,7 +89,7 @@ def render(company, industry, tone, desc):
         if apply_brand_btn and brand_suggestion:
             current_brand = st.session_state.brand
             fonts_list = get_fonts_str_for_tone(tone)
-            slogan_examples = load_slogan_examples(tone)
+            slogan_examples = load_slogan_examples()
             slogan_hint = ""
             if slogan_examples:
                 slogan_hint = f"\nFor slogan inspiration, study these real brand slogans (DO NOT copy, create unique ones): {slogan_examples}."
