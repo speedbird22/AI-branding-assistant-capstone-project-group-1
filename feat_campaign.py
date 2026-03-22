@@ -11,15 +11,38 @@ def render(company, industry, tone, desc):
         data = extract_json(generate_ai(prompt))
         if data:
             st.session_state.campaign = data
+            st.session_state.final_campaign_caption = ""
             st.success("Campaign generated!")
 
     if st.session_state.campaign:
-        st.subheader("Campaign Ideas")
-        for c in st.session_state.campaign.get("captions", []):
-            glass_card(c)
-        glass_card(st.session_state.campaign.get("metrics",""))
+        captions = st.session_state.campaign.get("captions", [])
+        metrics = st.session_state.campaign.get("metrics", "")
 
-        # --- ADD SUGGESTIONS ---
+        st.subheader("Campaign Ideas")
+        for c in captions:
+            glass_card(c)
+
+        # --- FINAL CAPTION SELECTION ---
+        if captions:
+            st.markdown("---")
+            st.markdown("### \U00002705 Select Your Final Campaign Idea")
+            st.caption("Choose one campaign idea to finalise. This will be used in your Brand Book.")
+
+            current_final = st.session_state.get("final_campaign_caption", "")
+            default_idx = captions.index(current_final) if current_final in captions else 0
+
+            selected_caption = st.radio(
+                "Choose your final campaign idea:",
+                options=captions,
+                index=default_idx,
+                key="campaign_caption_radio"
+            )
+            st.session_state.final_campaign_caption = selected_caption
+            st.success(f"\U0001f3af Finalised Campaign Idea: {selected_caption}")
+
+        glass_card(metrics)
+
+        # ---- ADD SUGGESTIONS ----
         st.markdown("---")
         st.markdown("### \U0001f4ac Add Suggestions")
         st.caption("Want to refine the campaign? Describe your changes and the AI will update it based on the current results.")
@@ -59,6 +82,7 @@ def render(company, industry, tone, desc):
                 data = extract_json(response)
                 if data:
                     st.session_state.campaign = data
+                    st.session_state.final_campaign_caption = ""
                     st.success("\u2728 Campaign updated with your suggestions!")
                     st.rerun()
                 else:
