@@ -1,198 +1,256 @@
-import streamlit as st
+Typing: import streamlit as st
 import io
-import zipfile
 import os
+import re
+import zipfile
+import shutil
 from PIL import Image as PILImage, ImageDraw, ImageFont
 from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.enums import TA_CENTER
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+from utils import generate_ai
 
 def clean_markdown(text):
-    """Sanitizes text and handles common markdown symbols for ReportLab."""
-    if not text: return ""
-    if not isinstance(text, str): text = str(text)
-    replacements = {
-        '\u201c': '"', '\u201d': '"', '\u2018': "'", '\u2019': "'",
-        '\u2014': '-', '\u2013': '-', '\u2026': '...', '\u2022': '-',
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '**': '', '##': ''
-    }
-    for search, replace in replacements.items():
-        text = text.replace(search, replace)
-    return text.encode('ascii', 'ignore').decode('ascii')
+"""Sanitizes text, converts smart punctuation, and handles markdown."""
+if not text: return ""
+replacements = {
+'\u201c': '"', '\u201d': '"', '\u2018': "'", '\u2019': "'",
+'\u2014': '-', '\u2013': '-', '\u2026': '...', '\u2022': '-',
+}
+for search, replace in replacements.items():
+text = text.replace(search, replace)
+text = text.encode('ascii', 'ignore').decode('ascii')
+text = re.sub(r'<[^>]+>', '', text)
+text = text.replace('```', '')
+text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+text = re.sub(r'**(.*?)**', r'<b>\1</b>', text)
+text = re.sub(r'*(.*?)*', r'<i>\1</i>', text)
+text = re.sub(r'(.*?)', r'<i>\1</i>', text)
+text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+return text
 
 def create_color_palette_image(palette):
-    """High-res color palette generator."""
-    if not isinstance(palette, list): return None
-    colors = palette[:4]
-    img_width, img_height = 1200, 400 # Increased resolution
-    swatch_width = img_width // len(colors)
-    img = PILImage.new('RGB', (img_width, img_height), 'white')
-    draw = ImageDraw.Draw(img)
-    
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
-    except:
-        font = ImageFont.load_default()
+"""Creates a color palette image with swatches and hex codes."""
+colors = palette[:4] # Take first 4 colors
+img_width = 800
+img_height = 200
+swatch_width = img_width // len(colors)
 
-    for i, color in enumerate(colors):
-        x = i * swatch_width
-        draw.rectangle([x, 0, x + swatch_width, 320], fill=color)
-        draw.text((x + 20, 340), str(color), fill='black', font=font)
-    
-    buffer = io.BytesIO()
-    img.save(buffer, format='PNG', dpi=(300, 300))
-    buffer.seek(0)
-    return buffer
+img = PILImage.new('RGB', (img_width, img_height), 'white')
+draw = ImageDraw.Draw(img)
 
-def create_translations_image(translations):
-    """Creates a high-res image. Note: For Japanese, a CJK font is required on the system."""
-    if not isinstance(translations, dict) or not translations: return None
-    
-    img_width = 1600 # Wider for better quality
-    line_height = 60
-    padding = 50
-    
-    # Text wrapping and height calculation
-    img_height = 2000 
-    img = PILImage.new('RGB', (img_width, img_height), 'white')
-    draw = ImageDraw.Draw(img)
+try:
+font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+except:
+font = ImageFont.load_default()
 
-    # Attempt to find a font that supports CJK if Japanese is present
-    try:
-        # Common Linux paths for CJK/Unicode fonts
-        font_path = "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"
-        if not os.path.exists(font_path):
-            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-        
-        font_title = ImageFont.truetype(font_path, 45)
-        font_text = ImageFont.truetype(font_path, 35)
-    except:
-        font_title = font_text = ImageFont.load_default()
+for i, color in enumerate(colors):
+x = i * swatch_width
+# Draw color swatch
+draw.rectangle([x, 0, x + swatch_width, 150], fill=color)
+# Draw hex code text
+text = color
+bbox = draw.textbbox((0, 0), text, font=font)
+text_width = bbox
+ - bbox
 
-    y = padding
-    for lang, text in translations.items():
-        draw.text((padding, y), f"{lang}:", fill='#111111', font=font_title)
-        y += line_height + 10
-        
-        words = str(text).split(' ')
-        line = ""
-        for word in words:
-            if draw.textbbox((0,0), line + word, font=font_text)[2] < img_width - 100:
-                line += word + " "
-            else:
-                draw.text((padding + 40, y), line, fill='#444444', font=font_text)
-                y += line_height
-                line = word + " "
-        draw.text((padding + 40, y), line, fill='#444444', font=font_text)
-        y += line_height + 40
+text_x = x + (swatch_width - text_width) // 2
+draw.text((text_x, 160), text, fill='black', font=font)
 
-    buffer = io.BytesIO()
-    # Crop the image to the actual content height
-    final_img = img.crop((0, 0, img_width, min(y + padding, 2000)))
-    final_img.save(buffer, format='PNG', dpi=(300, 300))
-    buffer.seek(0)
-    return buffer
+buffer = io.BytesIO()
+img.save(buffer, format='PNG')
+buffer.seek(0)
+return buffer
 
-def create_brand_book_pdf(company, industry, tone, desc, brand, campaign, strategy, final_slogan, final_font, final_campaign_caption, extra_content):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=50, rightMargin=50, topMargin=50, bottomMargin=50)
-    styles = getSampleStyleSheet()
-    
-    # Custom Styles
-    title_s = ParagraphStyle('T', parent=styles['Heading1'], fontSize=26, alignment=TA_CENTER, spaceAfter=20)
-    head_s = ParagraphStyle('H', parent=styles['Heading2'], fontSize=16, spaceBefore=15, spaceAfter=10, textColor='#2c3e50')
-    body_s = ParagraphStyle('B', parent=styles['BodyText'], fontSize=11, leading=14, spaceAfter=10)
+def create_brand_book_pdf(company, desc):
+"""Creates the brand book PDF."""
+if not st.session_state.brand:
+return None
 
-    story = []
-    story.append(Paragraph(clean_markdown(f"{company} - Official Brand Book"), title_s))
-    
-    # 1. Overview
-    story.append(Paragraph("1. Executive Summary", head_s))
-    story.append(Paragraph(f"<b>Industry:</b> {industry}", body_s))
-    story.append(Paragraph(f"<b>Tone:</b> {tone}", body_s))
-    story.append(Paragraph(f"<b>Core Description:</b> {desc}", body_s))
+buffer = io.BytesIO()
+doc = SimpleDocTemplate(buffer, pagesize=letter)
+styles = getSampleStyleSheet()
+title_style = styles["Heading1"]
+title_style.alignment = TA_CENTER
+body = ParagraphStyle('body', fontSize=11, leading=16)
+bullet_style = ParagraphStyle('bullet', fontSize=11, leading=16, leftIndent=20)
+story = ]
 
-    # 2. Strategy (The "Missing" Content)
-    story.append(Paragraph("2. Market Strategy", head_s))
-    strat_data = st.session_state.get('strategy', {})
-    if isinstance(strat_data, dict):
-        story.append(Paragraph(f"<b>Target Audience:</b> {strat_data.get('target_audience', 'Not specified')}", body_s))
-        story.append(Paragraph(f"<b>Market Positioning:</b> {strat_data.get('positioning', 'Not specified')}", body_s))
-        if 'competitors' in strat_data:
-            story.append(Paragraph(f"<b>Key Competitors:</b> {strat_data.get('competitors')}", body_s))
-    
-    # 3. Identity
-    story.append(Paragraph("3. Brand Visuals & Voice", head_s))
-    slogan = final_slogan or (brand.get('slogans', [''])[0] if isinstance(brand, dict) and brand.get('slogans') else "N/A")
-    story.append(Paragraph(f"<b>Primary Tagline:</b> {slogan}", body_s))
-    
-    font_val = final_font or (brand.get('fonts', [''])[0] if isinstance(brand, dict) and brand.get('fonts') else "Standard")
-    story.append(Paragraph(f"<b>Typography Choice:</b> {font_val}", body_s))
+def add_block(text):
+if not text: return
+cleaned_text = clean_markdown(text)
+for line in cleaned_text.split("\n"):
+line = line.strip()
+if not line or line.startswith("---") or re.match(r'^|?[\s-:]+|$', line):
+continue
+if line.startswith("|") and line.endswith("|"):
+line = line.replace("|", " ").strip()
+line = re.sub(r'\s+', ' ', line)
+if line.startswith("- ") or line.startswith("* "):
+story.append(Paragraph(f"\u2022 {line[2:]}", bullet_style))
+elif re.match(r'^\d+.\s', line):
+story.append(Paragraph(line, bullet_style))
+else:
+story.append(Paragraph(line, body))
+story.append(Spacer(1, 6))
 
-    # 4. Campaigns
-    story.append(Paragraph("4. Campaign Concepts", head_s))
-    camp_data = st.session_state.get('campaign', {})
-    if isinstance(camp_data, dict) and camp_data.get('campaign_ideas'):
-        for idea in camp_data['campaign_ideas'][:3]:
-            story.append(Paragraph(f"• {idea}", body_s))
+story.append(Paragraph(f"{company} Brand Book", title_style))
+story.append(Spacer(1, 30))
 
-    # 5. Extra Content
-    if extra_content:
-        story.append(Paragraph("5. Additional Guidelines", head_s))
-        story.append(Paragraph(clean_markdown(extra_content), body_s))
+story.append(Paragraph("Company Overview", styles["Heading2"]))
+add_block(desc)
+story.append(Spacer(1, 10))
 
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
+if st.session_state.strategy:
+story.append(Paragraph("Brand Strategy", styles["Heading2"]))
+add_block(st.session_state.strategy)
+story.append(Spacer(1, 10))
 
-def create_brand_book_zip(company, industry, tone, desc):
-    # Safely fetch data
-    brand = st.session_state.get('brand', {})
-    if not isinstance(brand, dict): brand = {}
-    
-    translations = st.session_state.get('translations', {})
-    if not isinstance(translations, dict): translations = {}
-    
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        # PDF
-        pdf = create_brand_book_pdf(company, industry, tone, desc, brand, {}, {}, 
-                                   st.session_state.get('final_slogan'), 
-                                   st.session_state.get('final_font'), 
-                                   st.session_state.get('final_campaign_caption'), 
-                                   st.session_state.get('book_extra_content'))
-        zip_file.writestr('brand_book.pdf', pdf.read())
-        
-        # Color Swatch
-        if brand.get('color_palette'):
-            cp = create_color_palette_image(brand['color_palette'])
-            if cp: zip_file.writestr('visual_palette.png', cp.read())
-            
-        # Translations
-        if translations:
-            tr_img = create_translations_image(translations)
-            if tr_img: zip_file.writestr('multilingual_assets.png', tr_img.read())
+story.append(Paragraph("Slogans", styles["Heading2"]))
+final_slogan = st.session_state.get("final_slogan", "")
+if final_slogan:
+add_block(f"Primary Slogan: {final_slogan}")
+else:
+for s in st.session_state.brand.get("slogans", []):
+add_block(f"- {s}")
+story.append(Spacer(1, 10))
 
-    zip_buffer.seek(0)
-    return zip_buffer
+story.append(Paragraph("Typography", styles["Heading2"]))
+final_font = st.session_state.get("final_font", "")
+if final_font:
+add_block(f"Primary Font: {final_font}")
+else:
+for f in st.session_state.brand.get("fonts", []):
+add_block(f"- {f}")
+story.append(Spacer(1, 10))
+
+story.append(Paragraph("Color Palette", styles["Heading2"]))
+for c in st.session_state.brand.get("palette", []):
+add_block(f"- {c}")
+story.append(Spacer(1, 10))
+
+if st.session_state.campaign:
+story.append(Paragraph("Campaign Strategy", styles["Heading2"]))
+final_caption = st.session_state.get("final_campaign_caption", "")
+if final_caption:
+add_block(f"Primary Campaign Idea: {final_caption}")
+else:
+for cap in st.session_state.campaign.get("captions", []):
+add_block(f"- {cap}")
+add_block(st.session_state.campaign.get("metrics", ""))
+story.append(Spacer(1, 10))
+
+if st.session_state.translations:
+story.append(Paragraph("Translations", styles["Heading2"]))
+add_block(st.session_state.translations)
+
+if st.session_state.get("book_extra_content"):
+story.append(Spacer(1, 10))
+story.append(Paragraph("Additional Notes", styles["Heading2"]))
+add_block(st.session_state.book_extra_content)
+
+doc.build(story)
+buffer.seek(0)
+return buffer
+
+def create_brand_book_zip(company, desc):
+"""Creates a ZIP file containing color palette image, logo GIF, and brand PDF."""
+if not st.session_state.brand:
+return None
+
+zip_buffer = io.BytesIO()
+
+with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+# 1. Add color palette image
+palette = st.session_state.brand.get("palette", [])
+if palette:
+color_img = create_color_palette_image(palette)
+zip_file.writestr('color_palette.png', color_img.read())
+
+# 2. Add logo GIF
+if os.path.exists('logo_animation.gif'):
+with open('logo_animation.gif', 'rb') as logo_file:
+zip_file.writestr('logo_animation.gif', logo_file.read())
+
+# 3. Add brand book PDF
+pdf_buffer = create_brand_book_pdf(company, desc)
+if pdf_buffer:
+zip_file.writestr('brand_book.pdf', pdf_buffer.read())
+
+zip_buffer.seek(0)
+return zip_buffer
 
 def render(company, industry, tone, desc):
-    st.markdown("## 📖 Brand Book Generator")
-    
-    if st.button("🎨 Generate & Download Package", type="primary"):
-        with st.spinner("Compiling high-res assets..."):
-            try:
-                zip_data = create_brand_book_zip(company, industry, tone, desc)
-                st.download_button(
-                    label="⬇️ Download ZIP (High Res)",
-                    data=zip_data,
-                    file_name=f"{company}_brand_package.zip",
-                    mime="application/zip"
-                )
-                st.success("Assets generated! Check the ZIP for PDF and high-res PNGs.")
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
+st.markdown("### \U0001f4d5 Brand Book Generator")
+st.caption("Compile all your generated brand assets into a professional download package.")
+
+if not st.session_state.get("brand"):
+st.info("\U0001f4a1 Tip: Go to the '\U0001f3a8 Brand Identity' tab and generate your brand first!")
+return
+
+final_slogan = st.session_state.get("final_slogan", "")
+final_font = st.session_state.get("final_font", "")
+final_caption = st.session_state.get("final_campaign_caption", "")
+
+if final_slogan or final_font or final_caption:
+st.markdown("### \U00002705 Your Finalised Selections")
+if final_slogan:
+st.success(f"Slogan: {final_slogan}")
+if final_font:
+st.success(f"Font: {final_font}")
+if final_caption:
+st.success(f"Campaign Idea: {final_caption}")
+st.markdown("---")
+
+st.markdown("### \U0001f4ac Add Suggestions")
+st.caption("Add extra insights or custom sections to your Brand Book.")
+col1, col2 = st.columns([4, 1])
+with col1:
+book_suggestion = st.text_input(
+"Your suggestions:",
+label_visibility="collapsed",
+placeholder="e.g. Add a section on target audience, brand values...",
+key="book_suggestion_input"
+)
+with col2:
+apply_book_btn = st.button("Generate", use_container_width=True, key="book_apply_btn")
+
+if apply_book_btn and book_suggestion:
+brand_data = st.session_state.brand
+extra_prompt = f"""
+You are adding supplementary content to a brand book.
+
+BRAND CONTEXT:
+Company: {company}
+Description: {desc}
+Slogans: {brand_data.get('slogans', [])}
+Fonts: {brand_data.get('fonts', [])}
+Color Palette: {brand_data.get('palette', [])}
+
+USER REQUEST: "{book_suggestion}"
+
+Task: Generate the requested content. Use clear paragraphs and bullet points.
+"""
+with st.spinner("Generating additional content..."):
+response = generate_ai(extra_prompt)
+if response:
+st.session_state.book_extra_content = response
+st.success("\u2728 Additional content generated!")
+
+if st.session_state.get("book_extra_content"):
+with st.expander("\U0001f4cb Preview Additional Content"):
+st.write(st.session_state.book_extra_content)
+
+st.markdown("---")
+zip_buffer = create_brand_book_zip(company, desc)
+if zip_buffer:
+st.success("\u2705 Your Brand Book package is ready!")
+st.info("\U0001f4e6 Package includes: Color palette image, logo GIF, and complete brand book PDF")
+st.download_button(
+label="\U0001f4e5 Download Brand Book Package (ZIP)",
+data=zip_buffer,
+file_name=f"{company.replace(' ', '_')}_Brand_Book.zip",
+mime="application/zip",
+use_container_width=True
+)
