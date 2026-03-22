@@ -7,37 +7,39 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
+from utils import generate_ai
 
 def clean_markdown(text):
     """Sanitizes text, converts smart punctuation, and handles markdown."""
     if not text: return ""
-    
-    # 1. Convert "smart" typography to standard ASCII to prevent black boxes (■)
+
+    # 1. Convert "smart" typography to standard ASCII to prevent black boxes
     replacements = {
-        '“': '"', '”': '"', '‘': "'", '’': "'",
-        '—': '-', '–': '-', '…': '...', '•': '-', '\u2022': '-', '\u2013': '-', '\u2014': '-'
+        '\u201c': '"', '\u201d': '"', '\u2018': "'", '\u2019': "'",
+        '\u2014': '-', '\u2013': '-', '\u2026': '...', '\u2022': '-',
+        '\u2022': '-', '\u2013': '-', '\u2014': '-'
     }
     for search, replace in replacements.items():
         text = text.replace(search, replace)
-        
+
     # 2. Strip any remaining unsupported unicode/emojis
     text = text.encode('ascii', 'ignore').decode('ascii')
-    
+
     # 3. Strip out raw HTML tags and backticks
     text = re.sub(r'<[^>]+>', '', text)
     text = text.replace('```', '')
-    
+
     # 4. Escape special XML characters
     text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-    
+
     # 5. Convert Markdown **bold** and *italics* to ReportLab safe tags
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
     text = re.sub(r'_(.*?)_', r'<i>\1</i>', text)
-    
+
     # 6. Clean up Markdown headers (###)
     text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
-    
+
     return text
 
 def create_brand_book(company, desc):
@@ -47,10 +49,10 @@ def create_brand_book(company, desc):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     styles = getSampleStyleSheet()
-    
+
     title_style = styles["Heading1"]
     title_style.alignment = TA_CENTER
-    
+
     body = ParagraphStyle('body', fontSize=11, leading=16)
     bullet_style = ParagraphStyle('bullet', fontSize=11, leading=16, leftIndent=20)
 
@@ -60,24 +62,20 @@ def create_brand_book(company, desc):
         """Smart parser that turns text into proper PDF paragraphs and bullets."""
         if not text: return
         cleaned_text = clean_markdown(text)
-        
         for line in cleaned_text.split("\n"):
             line = line.strip()
-            
             # Skip empty lines, markdown dividers (---), and markdown table separators (|---|)
-            if not line or line.startswith("---") or re.match(r'^\|?[\s\-:]+\|$', line): 
+            if not line or line.startswith("---") or re.match(r'^\|?[\s\-:]+\|$', line):
                 continue
-            
             # Convert markdown table rows into standard text strings
             if line.startswith("|") and line.endswith("|"):
                 line = line.replace("|", " ").strip()
-                line = re.sub(r'\s+', ' ', line) # collapse multiple spaces
-
+                line = re.sub(r'\s+', ' ', line)
             # Catch standard bullet points
             if line.startswith("- ") or line.startswith("* "):
-                story.append(Paragraph(f"• {line[2:]}", bullet_style))
+                story.append(Paragraph(f"\u2022 {line[2:]}", bullet_style))
             # Catch numbered lists (e.g., "1. ")
-            elif re.match(r'^\d+\.\s', line): 
+            elif re.match(r'^\d+\.\s', line):
                 story.append(Paragraph(line, bullet_style))
             # Standard paragraph
             else:
@@ -92,10 +90,9 @@ def create_brand_book(company, desc):
     if os.path.exists('logo_animation.gif'):
         try:
             with PILImage.open('logo_animation.gif') as img:
-                img.seek(0) 
+                img.seek(0)
                 rgb_im = img.convert('RGB')
                 rgb_im.save('logo_static.png', 'PNG')
-            
             story.append(Paragraph("Primary Logo", styles["Heading2"]))
             logo_img = RLImage('logo_static.png', width=250, height=250)
             story.append(logo_img)
@@ -139,24 +136,74 @@ def create_brand_book(company, desc):
         story.append(Paragraph("Translations", styles["Heading2"]))
         add_block(st.session_state.translations)
 
+    # --- ADDITIONAL AI NOTES (from suggestions) ---
+    if st.session_state.get("book_extra_content"):
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("Additional Notes", styles["Heading2"]))
+        add_block(st.session_state.book_extra_content)
+
     doc.build(story)
     buffer.seek(0)
     return buffer
 
 def render(company, desc):
-    st.markdown("### 📕 Brand Book Generator")
+    st.markdown("### \U0001f4d5 Brand Book Generator")
     st.caption("Compile all your generated brand assets into a professional PDF.")
 
     if not st.session_state.get("brand"):
-        st.info("💡 **Tip:** Go to the '🎨 Brand Identity' tab and generate your brand first to unlock the PDF download!")
+        st.info("\U0001f4a1 **Tip:** Go to the '\U0001f3a8 Brand Identity' tab and generate your brand first to unlock the PDF download!")
         return
 
+    # --- ADD SUGGESTIONS ---
+    st.markdown("### \U0001f4ac Add Suggestions")
+    st.caption("Want to add extra insights or custom sections to your Brand Book? Describe what you'd like and the AI will generate it based on all your brand data.")
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        book_suggestion = st.text_input(
+            "Your suggestions:",
+            label_visibility="collapsed",
+            placeholder="e.g. Add a section on target audience, add brand values, add a mission statement...",
+            key="book_suggestion_input"
+        )
+    with col2:
+        apply_book_btn = st.button("Generate", use_container_width=True, key="book_apply_btn")
+
+    if apply_book_btn and book_suggestion:
+        brand_data = st.session_state.brand
+        extra_prompt = f"""
+        You are adding supplementary content to a brand book.
+
+        BRAND CONTEXT:
+        Company: {company}
+        Description: {desc}
+        Slogans: {brand_data.get('slogans', [])}
+        Fonts: {brand_data.get('fonts', [])}
+        Color Palette: {brand_data.get('palette', [])}
+        Strategy: {st.session_state.get('strategy', '')[:500]}
+
+        USER REQUEST: "{book_suggestion}"
+
+        Task: Generate the requested content for the brand book.
+        Write in clear paragraphs and bullet points. No markdown tables or code blocks.
+        """
+        with st.spinner("Generating additional content..."):
+            response = generate_ai(extra_prompt)
+            if response:
+                st.session_state.book_extra_content = response
+                st.success("\u2728 Additional content generated! It will be included in your PDF.")
+            else:
+                st.warning("\u26a0\ufe0f Could not generate content. Please try again.")
+
+    if st.session_state.get("book_extra_content"):
+        with st.expander("\U0001f4cb Preview Additional Content"):
+            st.write(st.session_state.book_extra_content)
+
+    st.markdown("---")
     pdf_buffer = create_brand_book(company, desc)
-    
     if pdf_buffer:
-        st.success("✅ Your Brand Book is ready!")
+        st.success("\u2705 Your Brand Book is ready!")
         st.download_button(
-            label="📥 Download Brand Book PDF",
+            label="\U0001f4e5 Download Brand Book PDF",
             data=pdf_buffer,
             file_name=f"{company.replace(' ', '_')}_Brand_Book.pdf",
             mime="application/pdf",
