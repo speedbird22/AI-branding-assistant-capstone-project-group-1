@@ -1,7 +1,7 @@
 import streamlit as st
 from utils import generate_ai, glass_card
 
-def render():
+def render(company, industry, tone, desc):
     st.markdown("### Choose your markets")
 
     col1, col2, col3 = st.columns(3)
