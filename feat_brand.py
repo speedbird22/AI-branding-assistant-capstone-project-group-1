@@ -7,10 +7,6 @@ from fonts_by_tone import get_fonts_str_for_tone
 CSV_FILENAME = "sloganlist (1).csv"
 
 def load_slogan_examples(n=6):
-    """
-    Loads example slogans from the sloganlist CSV.
-    Returns a formatted string of example slogans for the AI prompt.
-    """
     try:
         csv_path = os.path.join(os.path.dirname(__file__), CSV_FILENAME)
         df = pd.read_csv(csv_path)
@@ -46,18 +42,43 @@ def render(company, industry, tone, desc):
         data = extract_json(generate_ai(prompt))
         if data:
             st.session_state.brand = data
+            st.session_state.final_slogan = ""
+            st.session_state.final_font = ""
             st.success("\u2728 Your brand identity is ready below!")
 
     brand = st.session_state.brand
     if brand:
+        # --- SLOGANS with selection ---
         st.subheader("Slogans")
-        for s in brand.get("slogans", []):
-            glass_card(s)
+        st.caption("Select your favourite slogan to finalise it for the Brand Book.")
+        slogans = brand.get("slogans", [])
+        if slogans:
+            selected_slogan = st.radio(
+                "Choose your slogan:",
+                options=slogans,
+                index=slogans.index(st.session_state.final_slogan) if st.session_state.final_slogan in slogans else 0,
+                key="slogan_radio"
+            )
+            st.session_state.final_slogan = selected_slogan
+            st.success(f"\u2705 Finalised slogan: *{selected_slogan}*")
 
+        # --- FONTS with selection ---
         st.subheader("Fonts")
-        for f in brand.get("fonts", []):
-            font_card(f)
+        st.caption("Select your primary font to finalise it for the Brand Book.")
+        fonts = brand.get("fonts", [])
+        if fonts:
+            selected_font = st.radio(
+                "Choose your font:",
+                options=fonts,
+                index=fonts.index(st.session_state.final_font) if st.session_state.final_font in fonts else 0,
+                key="font_radio"
+            )
+            st.session_state.final_font = selected_font
+            st.success(f"\u2705 Finalised font: *{selected_font}*")
+            for f in fonts:
+                font_card(f)
 
+        # --- COLOR PALETTE ---
         st.subheader("Color Palette")
         cols = st.columns(len(brand.get("palette", [])))
         for col, color in zip(cols, brand.get("palette", [])):
@@ -114,6 +135,8 @@ def render(company, industry, tone, desc):
                 data = extract_json(response)
                 if data:
                     st.session_state.brand = data
+                    st.session_state.final_slogan = ""
+                    st.session_state.final_font = ""
                     st.success("\u2728 Brand identity updated with your suggestions!")
                     st.rerun()
                 else:
