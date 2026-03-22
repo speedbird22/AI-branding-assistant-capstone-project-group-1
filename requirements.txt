@@ -1,0 +1,9 @@
+streamlit
+openai
+markdown
+reportlab
+matplotlib
+numpy
+pillow
+google-genai
+pandas
