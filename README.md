@@ -7,9 +7,9 @@
 
 ## 👥 Team Members
 
-* Yash (WACP ID - 1000198)
+* Yash (WACP ID - 1000199)
 * Akshith Reddy (WACP ID - 1000194)
-* Anish Bammidi (WACP ID - 1000319)
+* Anish Bammidi (WACP ID - 1000198)
 
 ---
 
