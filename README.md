@@ -3,6 +3,8 @@
 
 # 🚀 AI-Powered Automated Branding Assistant
 
+# Streamlit link - https://ai-branding-assistant-capstone-project-group-1-62wimproqspsfyw.streamlit.app/
+
 ### Capstone Project – Data Preprocessing & Understanding
 
 ## 👥 Team Members
